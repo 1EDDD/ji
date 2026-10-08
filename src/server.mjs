@@ -10,8 +10,8 @@ const GEMINI_THINKING_LEVEL = process.env.GEMINI_THINKING_LEVEL || "low";
 const UPSTREAM_STREAM_ADDON_URL = process.env.UPSTREAM_STREAM_ADDON_URL || "";
 const MAX_STREAMS = Math.max(1, Number(process.env.MAX_STREAMS || 6));
 const MAX_UPSTREAMS = Math.min(6, Math.max(1, Number(process.env.MAX_UPSTREAMS || 4)));
-const UPSTREAM_TIMEOUT_MS = Math.max(500, Number(process.env.UPSTREAM_TIMEOUT_MS || 2500));
-const GEMINI_TIMEOUT_MS = Math.max(500, Number(process.env.GEMINI_TIMEOUT_MS || 2200));
+const UPSTREAM_TIMEOUT_MS = Math.max(500, Number(process.env.UPSTREAM_TIMEOUT_MS || 1500));
+const GEMINI_TIMEOUT_MS = Math.max(500, Number(process.env.GEMINI_TIMEOUT_MS || 1800));
 const CACHE_TTL_MS = Math.max(1000, Number(process.env.CACHE_TTL_MS || 20000));
 const STALE_TTL_MS = Math.max(CACHE_TTL_MS, Number(process.env.STALE_TTL_MS || 300000));
 const AI_CACHE_TTL_MS = Math.max(10000, Number(process.env.AI_CACHE_TTL_MS || 180000));
@@ -585,14 +585,8 @@ function stripInternal(stream) {
   return copy;
 }
 
-async function buildResponse(type, id, upstreams, maxStreams) {
-  const gathered = await gatherStreams(type, id, upstreams);
-  const ranked = dedupeAndRank(gathered);
-
-  const aiPool = ranked.slice(0, Math.max(maxStreams * 2, 12));
-  const aiRanked = await geminiRank(aiPool, { type, id });
-
-  const selected = aiRanked
+function makeResponse(items, maxStreams) {
+  const selected = items
     .slice(0, maxStreams)
     .map((item, index) => decorateStream(item.stream, index, item.parsed))
     .map(stripInternal);
@@ -604,19 +598,64 @@ async function buildResponse(type, id, upstreams, maxStreams) {
   };
 }
 
+async function buildBaselineResponse(type, id, upstreams, maxStreams) {
+  const gathered = await gatherStreams(type, id, upstreams);
+  const ranked = dedupeAndRank(gathered);
+  return {
+    data: makeResponse(ranked, maxStreams),
+    ranked
+  };
+}
+
+async function enhanceCacheWithAI(type, id, maxStreams, cacheKey, ranked) {
+  if (!AI_ENABLED || !GEMINI_API_KEY || ranked.length < 3) return;
+
+  try {
+    const aiPool = ranked.slice(0, Math.max(maxStreams * 2, 12));
+    const aiRanked = await geminiRank(aiPool, { type, id });
+    const enhanced = makeResponse(aiRanked, maxStreams);
+
+    responseCache.set(cacheKey, {
+      data: enhanced,
+      expiresAt: now() + CACHE_TTL_MS,
+      staleUntil: now() + STALE_TTL_MS
+    });
+  } catch {
+    // Keep the fast baseline response in cache.
+  }
+}
+
 async function refresh(type, id, upstreams, maxStreams, cacheKey) {
   const existingLock = refreshLocks.get(cacheKey);
   if (existingLock) return existingLock;
 
   const promise = (async () => {
     try {
-      const data = await buildResponse(type, id, upstreams, maxStreams);
+      // Return the deterministic quality-ranked list first.
+      // AI refinement continues in the background so opening a stream
+      // never waits for Gemini.
+      const baseline = await buildBaselineResponse(
+        type,
+        id,
+        upstreams,
+        maxStreams
+      );
+
       responseCache.set(cacheKey, {
-        data,
+        data: baseline.data,
         expiresAt: now() + CACHE_TTL_MS,
         staleUntil: now() + STALE_TTL_MS
       });
-      return data;
+
+      void enhanceCacheWithAI(
+        type,
+        id,
+        maxStreams,
+        cacheKey,
+        baseline.ranked
+      );
+
+      return baseline.data;
     } finally {
       refreshLocks.delete(cacheKey);
     }
