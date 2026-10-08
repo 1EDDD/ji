@@ -18,7 +18,16 @@ const manifest = {
   resources: ["stream"],
   types: ["movie", "series"],
   idPrefixes: ["tt"],
-  behaviorHints: { configurable: false, configurationRequired: false }
+  behaviorHints: { configurable: true, configurationRequired: true },
+  config: [
+    {
+      key: "upstream",
+      type: "text",
+      title: "Upstream stream addon URL",
+      required: true,
+      default: ""
+    }
+  ]
 };
 
 app.get("/", (_req, res) => {
@@ -117,10 +126,31 @@ async function geminiRank(candidates, meta) {
   }
 }
 
-async function fetchUpstream(type, id) {
-  if (!UPSTREAM_STREAM_ADDON_URL) return [];
+function decodeConfig(raw) {
+  if (!raw) return {};
+  try {
+    const normalized = raw.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - normalized.length % 4) % 4);
+    const json = Buffer.from(padded, "base64").toString("utf8");
+    return JSON.parse(json);
+  } catch {
+    try {
+      return JSON.parse(decodeURIComponent(raw));
+    } catch {
+      return {};
+    }
+  }
+}
 
-  const base = UPSTREAM_STREAM_ADDON_URL.replace(/\/$/, "");
+function getUpstreamUrl(req) {
+  const configured = decodeConfig(req.params.config || req.query.config);
+  return configured.upstream || UPSTREAM_STREAM_ADDON_URL;
+}
+
+async function fetchUpstream(type, id, upstreamUrl) {
+  if (!upstreamUrl) return [];
+
+  const base = upstreamUrl.replace(/\/$/, "");
   const url =
     base +
     "/stream/" +
@@ -141,11 +171,15 @@ async function fetchUpstream(type, id) {
   return Array.isArray(data?.streams) ? data.streams : [];
 }
 
-app.get("/stream/:type/:id.json", async (req, res) => {
+app.get("/:config/stream/:type/:id.json", handleStream);
+app.get("/stream/:type/:id.json", handleStream);
+
+async function handleStream(req, res) {
   try {
     const { type, id } = req.params;
 
-    let streams = await fetchUpstream(type, id);
+    const upstreamUrl = getUpstreamUrl(req);
+    let streams = await fetchUpstream(type, id, upstreamUrl);
 
     streams = dedupe(streams)
       .map((s) => ({ ...s, _nuvioScore: scoreStream(s) }))
