@@ -9,10 +9,24 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL
-        value: gemini-2.5-flash
+        value: gemini-3.8-flash
+      - key: GEMINI_THINKING_LEVEL
+        value: low
       - key: UPSTREAM_STREAM_ADDON_URL
         sync: false
       - key: MAX_STREAMS
-        value: "8"
-      - key: AUTO_SYNC
+        value: "6"
+      - key: MAX_UPSTREAMS
+        value: "4"
+      - key: UPSTREAM_TIMEOUT_MS
+        value: "2500"
+      - key: GEMINI_TIMEOUT_MS
+        value: "2200"
+      - key: CACHE_TTL_MS
+        value: "20000"
+      - key: STALE_TTL_MS
+        value: "300000"
+      - key: AI_CACHE_TTL_MS
+        value: "180000"
+      - key: AI_ENABLED
         value: "true"
