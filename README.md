@@ -2,10 +2,11 @@
 
 Private AI-enhanced stream intelligence addon for Nuvio.
 
-## v0.2
+## v0.3
 
 Nuvio AI now acts as a fast stream intelligence layer rather than a basic filter:
 
+- Fast-first upstream response with a short merge grace window
 - Parallel upstream aggregation
 - Smart duplicate/release collapsing
 - Quality normalization across resolution, source, codec, audio and HDR
@@ -18,6 +19,8 @@ Nuvio AI now acts as a fast stream intelligence layer rather than a basic filter
 - Multiple upstream addon support
 - Automatic result labels and stable binge groups
 - Health endpoint at `/healthz`
+- Apple TV-inspired dashboard at `/ui` (and in browsers at `/`)
+- Response timing and cache headers for diagnostics
 
 The addon does not proxy or transcode media. It returns the original stream objects and improves their order and selection.
 
@@ -31,7 +34,8 @@ Recommended defaults:
 - `GEMINI_THINKING_LEVEL=low`
 - `MAX_STREAMS=6`
 - `MAX_UPSTREAMS=4`
-- `UPSTREAM_TIMEOUT_MS=2500`
+- `UPSTREAM_TIMEOUT_MS=1200
+- `FAST_RETURN_MS=250``
 - `CACHE_TTL_MS=20000`
 
 The addon can receive an upstream URL through its Nuvio configuration page. The server environment variable `UPSTREAM_STREAM_ADDON_URL` is kept as a fallback.
