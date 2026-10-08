@@ -19,7 +19,9 @@ services:
       - key: MAX_UPSTREAMS
         value: "4"
       - key: UPSTREAM_TIMEOUT_MS
-        value: "1500"
+        value: "1200"
+      - key: FAST_RETURN_MS
+        value: "250"
       - key: GEMINI_TIMEOUT_MS
         value: "2200"
       - key: CACHE_TTL_MS
