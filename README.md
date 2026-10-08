@@ -34,8 +34,8 @@ Recommended defaults:
 - `GEMINI_THINKING_LEVEL=low`
 - `MAX_STREAMS=6`
 - `MAX_UPSTREAMS=4`
-- `UPSTREAM_TIMEOUT_MS=1200
-- `FAST_RETURN_MS=250``
+- `UPSTREAM_TIMEOUT_MS=1200`
+- `FAST_RETURN_MS=250`
 - `CACHE_TTL_MS=20000`
 
 The addon can receive an upstream URL through its Nuvio configuration page. The server environment variable `UPSTREAM_STREAM_ADDON_URL` is kept as a fallback.
