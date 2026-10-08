@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: nuvio-ai
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: UPSTREAM_STREAM_ADDON_URL
+        sync: false
+      - key: MAX_STREAMS
+        value: "8"
+      - key: AUTO_SYNC
+        value: "true"
