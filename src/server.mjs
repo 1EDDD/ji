@@ -10,7 +10,8 @@ const GEMINI_THINKING_LEVEL = process.env.GEMINI_THINKING_LEVEL || "low";
 const UPSTREAM_STREAM_ADDON_URL = process.env.UPSTREAM_STREAM_ADDON_URL || "";
 const MAX_STREAMS = Math.max(1, Number(process.env.MAX_STREAMS || 6));
 const MAX_UPSTREAMS = Math.min(6, Math.max(1, Number(process.env.MAX_UPSTREAMS || 4)));
-const UPSTREAM_TIMEOUT_MS = Math.max(500, Number(process.env.UPSTREAM_TIMEOUT_MS || 1500));
+const UPSTREAM_TIMEOUT_MS = Math.max(500, Number(process.env.UPSTREAM_TIMEOUT_MS || 1200));
+const FAST_RETURN_MS = Math.max(0, Number(process.env.FAST_RETURN_MS || 250));
 const GEMINI_TIMEOUT_MS = Math.max(500, Number(process.env.GEMINI_TIMEOUT_MS || 1800));
 const CACHE_TTL_MS = Math.max(1000, Number(process.env.CACHE_TTL_MS || 20000));
 const STALE_TTL_MS = Math.max(CACHE_TTL_MS, Number(process.env.STALE_TTL_MS || 300000));
@@ -29,9 +30,9 @@ app.use((_req, res, next) => {
 
 const manifest = {
   id: "com.1eddd.nuvio.ai",
-  version: "0.2.0",
+  version: "0.3.0",
   name: "Nuvio AI",
-  description: "Fast AI-powered stream cleanup, quality ranking, duplicate reduction and fallback selection.",
+  description: "Fast AI-powered stream intelligence with instant fallback, smart ranking and a polished Apple TV-inspired dashboard.",
   resources: ["stream"],
   types: ["movie", "series"],
   idPrefixes: ["tt"],
@@ -350,23 +351,25 @@ function decorateStream(stream, rank, parsed) {
     .filter(Boolean)
     .join(" · ");
 
-  const originalName = stream.name || stream.title || "Stream";
-  const prefix =
-    rank === 0 ? "★ BEST" :
-    rank === 1 ? "⚡ FAST BACKUP" :
-    rank === 2 ? "◆ BACKUP" :
-    "•";
+  const originalName = String(stream.name || stream.title || "Stream").trim();
+  const badge =
+    rank === 0 ? "BEST MATCH" :
+    rank === 1 ? "FASTEST" :
+    rank === 2 ? "BACKUP" :
+    "OPTION";
 
-  const out = {
+  return {
     ...stream,
-    name: quality ? `${prefix} · ${quality}\n${originalName}` : `${prefix} · ${originalName}`,
+    name: quality ? `${badge}  •  ${quality}` : badge,
+    title: originalName,
+    description: quality
+      ? `${quality}  •  Selected by Nuvio AI`
+      : "Selected by Nuvio AI",
     behaviorHints: {
       ...(stream.behaviorHints || {}),
       bingeGroup: `nuvio-ai-${parsed.resolution || "auto"}-${parsed.source}-${parsed.codec}`
     }
   };
-
-  return out;
 }
 
 function dedupeAndRank(streams) {
@@ -447,13 +450,50 @@ async function fetchUpstream(type, id, upstream) {
 async function gatherStreams(type, id, upstreams) {
   if (!upstreams.length) return [];
 
-  const results = await Promise.allSettled(
-    upstreams.map((upstream) => fetchUpstream(type, id, upstream))
+  const completed = [];
+  const jobs = upstreams.map((upstream, index) =>
+    fetchUpstream(type, id, upstream)
+      .then((streams) => {
+        const result = { index, upstream, streams };
+        completed.push(result);
+        return result;
+      })
+      .catch((error) => {
+        const result = { index, upstream, streams: [], error };
+        completed.push(result);
+        return result;
+      })
   );
 
-  return results
-    .filter((result) => result.status === "fulfilled")
-    .flatMap((result) => result.value);
+  const nonEmpty = jobs.map((job) =>
+    job.then((result) => {
+      if (result.streams.length) return result;
+      throw result.error || new Error("empty upstream");
+    })
+  );
+
+  try {
+    const first = await Promise.any(nonEmpty);
+    if (FAST_RETURN_MS === 0) return first.streams;
+
+    // Return as soon as one source is ready. Only harvest requests that
+    // have already finished during the tiny grace window.
+    await sleep(FAST_RETURN_MS);
+
+    const combined = completed
+      .filter((result) => result.streams.length)
+      .sort((a, b) => a.index - b.index)
+      .flatMap((result) => result.streams);
+
+    return combined.length ? combined : first.streams;
+  } catch {
+    // Only wait for all requests when every source was empty/failed.
+    const results = await Promise.all(jobs);
+    return results
+      .filter((result) => result.streams.length)
+      .sort((a, b) => a.index - b.index)
+      .flatMap((result) => result.streams);
+  }
 }
 
 function sanitizeForAI(items) {
@@ -671,11 +711,75 @@ function sendResponse(res, data, cacheState = "hit") {
     `public, max-age=${Math.max(1, data.cacheMaxAge)}, stale-while-revalidate=${Math.max(1, data.staleRevalidate)}, stale-if-error=${Math.max(1, data.staleRevalidate)}`
   );
   res.setHeader("X-Nuvio-Cache", cacheState);
+  if (res.locals.nuvioStartedAt) {
+    res.setHeader("X-Nuvio-Duration", String(now() - res.locals.nuvioStartedAt));
+  }
   res.json(data);
 }
 
-app.get("/", (_req, res) => {
-  res.json({
+function renderDashboard() {
+  const ai = Boolean(GEMINI_API_KEY && AI_ENABLED);
+  const manifestUrl = "/manifest.json";
+  const statusText = ai ? "AI READY" : "FAST MODE";
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#05060a">
+<title>Nuvio AI</title>
+<style>
+:root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text",Inter,system-ui,sans-serif}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:radial-gradient(circle at 18% 8%,rgba(80,110,255,.22),transparent 28%),radial-gradient(circle at 88% 26%,rgba(175,90,255,.18),transparent 24%),linear-gradient(180deg,#070910 0%,#030409 100%);color:#f5f7ff}
+.wrap{max-width:980px;margin:auto;padding:32px 22px 64px}
+.nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:46px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.02em}
+.dot{width:12px;height:12px;border-radius:50%;background:linear-gradient(135deg,#8aa4ff,#b36cff);box-shadow:0 0 24px rgba(139,164,255,.8)}
+.pill{padding:8px 13px;border:1px solid rgba(255,255,255,.09);border-radius:999px;background:rgba(255,255,255,.05);font-size:12px;color:#cdd2e2}
+.hero{padding:42px 0 28px}.kicker{color:#9eabff;font-size:13px;font-weight:600;letter-spacing:.12em;text-transform:uppercase}
+h1{font-size:clamp(46px,9vw,88px);line-height:.94;letter-spacing:-.065em;margin:14px 0 18px;max-width:780px}
+.sub{font-size:18px;line-height:1.55;color:#aeb5c6;max-width:660px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:36px}
+.card{padding:20px;border-radius:24px;background:linear-gradient(180deg,rgba(255,255,255,.08),rgba(255,255,255,.035));border:1px solid rgba(255,255,255,.09);box-shadow:0 20px 70px rgba(0,0,0,.24);backdrop-filter:blur(22px)}
+.label{font-size:12px;color:#8f96a9;text-transform:uppercase;letter-spacing:.08em}
+.value{font-size:22px;font-weight:650;letter-spacing:-.03em;margin-top:8px}
+.section{margin-top:30px}.section h2{font-size:22px;letter-spacing:-.03em;margin:0 0 14px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 18px;border-radius:18px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);margin-top:10px}
+.code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;color:#cbd1e1;overflow:auto;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;padding:13px 17px;border-radius:14px;background:#f5f7ff;color:#0a0b10;text-decoration:none;font-weight:650}
+.muted{color:#8f96a9}.footer{margin-top:50px;color:#6f7687;font-size:13px}
+@media(max-width:720px){.grid{grid-template-columns:1fr}.wrap{padding:20px 16px 46px}h1{font-size:54px}.sub{font-size:16px}.hero{padding-top:28px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="nav"><div class="brand"><span class="dot"></span><span>Nuvio AI</span></div><div class="pill">${statusText}</div></div>
+  <div class="hero"><div class="kicker">Stream intelligence</div><h1>Fast. Clean.<br>Ridiculously selective.</h1><div class="sub">A fast intelligence layer that cleans up stream choices, removes duplicates and ranks the first playable options without waiting for AI.</div></div>
+  <div class="grid">
+    <div class="card"><div class="label">Model</div><div class="value">${GEMINI_MODEL}</div></div>
+    <div class="card"><div class="label">AI ranking</div><div class="value">${ai ? "Enabled" : "Disabled"}</div></div>
+    <div class="card"><div class="label">Response path</div><div class="value">Fast-first</div></div>
+  </div>
+  <div class="section"><h2>Connect to Nuvio</h2><div class="row"><div><div class="label">Manifest</div><div class="code">${manifestUrl}</div></div><a class="btn" href="${manifestUrl}">Open</a></div></div>
+  <div class="section"><h2>Build</h2>
+    <div class="row"><span>First non-empty upstream wins</span><span class="muted">fast fallback</span></div>
+    <div class="row"><span>Duplicate releases collapse</span><span class="muted">clean list</span></div>
+    <div class="row"><span>Gemini ranks in background</span><span class="muted">never blocks</span></div>
+    <div class="row"><span>Stale cache survives slow sources</span><span class="muted">repeat opens</span></div>
+  </div>
+  <div class="footer">Nuvio AI 0.3 • Apple TV-inspired dark glass</div>
+</div>
+</body>
+</html>`;
+}
+
+app.get("/", (req, res) => {
+  if (String(req.headers.accept || "").includes("text/html")) {
+    return res.type("html").send(renderDashboard());
+  }
+  return res.json({
     name: "Nuvio AI",
     version: manifest.version,
     status: "ok",
@@ -684,6 +788,8 @@ app.get("/", (_req, res) => {
     manifest: "/manifest.json"
   });
 });
+
+app.get("/ui", (_req, res) => res.type("html").send(renderDashboard()));;
 
 app.get("/healthz", (_req, res) => {
   res.json({
@@ -702,6 +808,7 @@ app.get("/:config/stream/:type/:id.json", handleStream);
 app.get("/stream/:type/:id.json", handleStream);
 
 async function handleStream(req, res) {
+  res.locals.nuvioStartedAt = now();
   const { type, id } = req.params;
   const upstreams = getUpstreams(req);
   const maxStreams = getMaxStreams(req);
@@ -734,6 +841,8 @@ async function handleStream(req, res) {
       return sendResponse(res, cached.data, "stale-error");
     }
 
+    res.setHeader("X-Nuvio-Cache", "error");
+    res.setHeader("X-Nuvio-Duration", String(now() - res.locals.nuvioStartedAt));
     return res.status(502).json({
       streams: [],
       error: error instanceof Error ? error.message : "Upstream request failed"
