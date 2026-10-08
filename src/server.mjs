@@ -78,7 +78,7 @@ function cleanUrl(raw) {
   if (!raw) return "";
   let value = String(raw).trim();
   if (!value) return "";
-  value = value.replace(//+$/, "");
+  value = value.replace(/\/+$/, "");
   value = value.replace(/\/manifest\.json$/i, "");
   return value;
 }
