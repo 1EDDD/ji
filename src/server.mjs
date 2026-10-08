@@ -202,7 +202,7 @@ async function handleStream(req, res) {
       error: error.message
     });
   }
-});
+}
 
 app.listen(PORT, () => {
   console.log("Nuvio AI listening on port " + PORT);
