@@ -1,0 +1,14 @@
+name: Nuvio AI Keepalive
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake Nuvio AI
+        run: |
+          curl --fail --silent --show-error --max-time 20             https://ji-sa2s.onrender.com/healthz
