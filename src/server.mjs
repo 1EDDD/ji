@@ -32,7 +32,6 @@ const manifest = {
   version: "0.2.0",
   name: "Nuvio AI",
   description: "Fast AI-powered stream cleanup, quality ranking, duplicate reduction and fallback selection.",
-  logo: "https://raw.githubusercontent.com/1EDDD/ji/main/assets/logo.png",
   resources: ["stream"],
   types: ["movie", "series"],
   idPrefixes: ["tt"],
