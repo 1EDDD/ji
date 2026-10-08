@@ -212,7 +212,7 @@ function parseRelease(stream) {
     proper: /(?:repack|proper)/i.test(text),
     cam: /(?:\bcam\b|camrip|telesync|telecine|\bts\b)/i.test(text),
     lowQuality: /(?:screener|workprint|hdtc)/i.test(text),
-    3d: /\b3d\b/i.test(text),
+    "3d": /\b3d\b/i.test(text),
     anime: /(?:\banime\b|\bdual audio\b)/i.test(text)
   };
 
