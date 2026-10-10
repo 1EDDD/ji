@@ -77,13 +77,21 @@ function stableHash(value) {
 
 function cleanUrl(raw) {
   if (!raw) return "";
-  let value = String(raw).trim();
+  const value = String(raw).trim();
   if (!value) return "";
-  value = value.replace(/\/+$/, "");
-  value = value.replace(/\/manifest\.json$/i, "");
-  return value;
-}
 
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "";
+    if (/\/manifest\.json$/i.test(parsed.pathname)) {
+      parsed.pathname = parsed.pathname.replace(/\/manifest\.json$/i, "") || "/";
+    }
+    parsed.hash = "";
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return value.replace(/\/+$/, "").replace(/\/manifest\.json$/i, "");
+  }
+}
 function decodeConfig(raw) {
   if (!raw) return {};
   try {
@@ -422,7 +430,7 @@ async function fetchUpstream(type, id, upstream) {
 
   const endpoint = new URL(base);
   endpoint.pathname =
-    endpoint.pathname.replace(/\\/+$/, "") +
+    endpoint.pathname.replace(/\/+$/, "") +
     "/stream/" +
     encodeURIComponent(type) +
     "/" +
@@ -852,7 +860,7 @@ form.addEventListener("submit", (event) => {
   const bytes = new TextEncoder().encode(JSON.stringify(config));
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  const encoded = btoa(binary).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/g, "");
+  const encoded = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
   generatedUrl = location.origin + "/" + encoded + "/manifest.json";
   output.textContent = generatedUrl;
   manifestLink.href = generatedUrl;
