@@ -3,7 +3,7 @@ services:
     name: nuvio-ai
     runtime: node
     plan: free
-    buildCommand: npm install
+    buildCommand: npm install && npm test
     startCommand: npm start
     envVars:
       - key: GEMINI_API_KEY
@@ -19,7 +19,7 @@ services:
       - key: MAX_UPSTREAMS
         value: "4"
       - key: UPSTREAM_TIMEOUT_MS
-        value: "1200"
+        value: "5000"
       - key: FAST_RETURN_MS
         value: "250"
       - key: GEMINI_TIMEOUT_MS
