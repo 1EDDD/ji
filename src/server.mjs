@@ -10,7 +10,7 @@ const GEMINI_THINKING_LEVEL = process.env.GEMINI_THINKING_LEVEL || "low";
 const UPSTREAM_STREAM_ADDON_URL = process.env.UPSTREAM_STREAM_ADDON_URL || "";
 const MAX_STREAMS = Math.max(1, Number(process.env.MAX_STREAMS || 6));
 const MAX_UPSTREAMS = Math.min(6, Math.max(1, Number(process.env.MAX_UPSTREAMS || 4)));
-const UPSTREAM_TIMEOUT_MS = Math.max(500, Number(process.env.UPSTREAM_TIMEOUT_MS || 1200));
+const UPSTREAM_TIMEOUT_MS = Math.max(1000, Number(process.env.UPSTREAM_TIMEOUT_MS || 5000));
 const FAST_RETURN_MS = Math.max(0, Number(process.env.FAST_RETURN_MS || 250));
 const GEMINI_TIMEOUT_MS = Math.max(500, Number(process.env.GEMINI_TIMEOUT_MS || 1800));
 const CACHE_TTL_MS = Math.max(1000, Number(process.env.CACHE_TTL_MS || 20000));
@@ -38,7 +38,7 @@ const manifest = {
   idPrefixes: ["tt"],
   behaviorHints: {
     configurable: true,
-    configurationRequired: true,
+    configurationRequired: false,
     p2p: true
   },
   config: [
@@ -420,31 +420,48 @@ async function fetchUpstream(type, id, upstream) {
   const base = cleanUrl(upstream);
   if (!base) return [];
 
-  const url =
-    base +
+  const endpoint = new URL(base);
+  endpoint.pathname =
+    endpoint.pathname.replace(/\\/+$/, "") +
     "/stream/" +
     encodeURIComponent(type) +
     "/" +
     encodeURIComponent(id) +
     ".json";
 
-  const response = await fetchWithTimeout(
-    url,
-    { headers: { accept: "application/json" } },
-    UPSTREAM_TIMEOUT_MS
-  );
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
 
-  if (!response.ok) {
-    throw new Error(`Upstream ${base} returned ${response.status}`);
+  try {
+    const response = await fetch(endpoint, {
+      headers: { accept: "application/json" },
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    const streams = Array.isArray(data?.streams) ? data.streams : [];
+
+    if (!streams.length) {
+      console.info(`[upstream] ${endpoint.host} returned 0 streams for ${type}/${id}`);
+    }
+
+    return streams.map((stream) => ({
+      ...stream,
+      _nuvioUpstream: base
+    }));
+  } catch (error) {
+    const reason = error?.name === "AbortError"
+      ? `timed out after ${UPSTREAM_TIMEOUT_MS}ms`
+      : (error instanceof Error ? error.message : "request failed");
+    console.warn(`[upstream] ${endpoint.host} failed for ${type}/${id}: ${reason}`);
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
-
-  const data = await response.json();
-  return Array.isArray(data?.streams)
-    ? data.streams.map((stream) => ({
-        ...stream,
-        _nuvioUpstream: base
-      }))
-    : [];
 }
 
 async function gatherStreams(type, id, upstreams) {
@@ -775,6 +792,84 @@ h1{font-size:clamp(46px,9vw,88px);line-height:.94;letter-spacing:-.065em;margin:
 </html>`;
 }
 
+
+app.get("/configure", (_req, res) => {
+  res.type("html").send(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#080a12">
+<title>Configure Nuvio AI</title>
+<style>
+:root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",system-ui,sans-serif}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 15% 0%,#202a56,transparent 42%),#080a12;color:#f4f6ff}
+main{max-width:680px;margin:0 auto;padding:28px 18px 60px}.card{margin-top:34px;padding:24px;border:1px solid #ffffff20;border-radius:24px;background:#ffffff09}
+h1{font-size:clamp(34px,8vw,54px);letter-spacing:-.05em;margin:12px 0}p{color:#b7bfd2;line-height:1.55}
+label{display:block;font-size:14px;margin:20px 0 8px;color:#d9deed}
+input{width:100%;padding:14px;border-radius:12px;border:1px solid #ffffff25;background:#101421;color:#fff;font:inherit}
+button{margin-top:22px;border:0;border-radius:12px;padding:14px 18px;background:#f4f6ff;color:#10121a;font:inherit;font-weight:700;cursor:pointer}
+code,.result{overflow-wrap:anywhere;word-break:break-word}.result{margin-top:20px;padding:14px;border-radius:12px;background:#0005;color:#dce3ff;line-height:1.5}
+a{color:#c8d2ff}.hint{font-size:13px;color:#8f9ab5}
+</style>
+</head>
+<body><main>
+<div class="hint">NUVIO AI · CONFIGURATION</div>
+<h1>Choose your stream source.</h1>
+<p>Nuvio's native addon screen may ignore custom manifest form fields, so this page builds a configured manifest URL that carries your source settings safely in the URL path.</p>
+<section class="card">
+<form id="config-form">
+<label for="upstream">Upstream addon manifest URL</label>
+<input id="upstream" type="url" required placeholder="https://your-addon.example/manifest.json" autocomplete="url">
+<p class="hint">Paste the configured manifest URL from Torrentio, Comet, AIOStreams, or another Stremio-compatible stream addon.</p>
+<label for="max">Maximum results</label>
+<input id="max" type="number" min="1" max="20" value="6" required>
+<button type="submit">Generate configured URL</button>
+</form>
+<div id="result" class="result" hidden>
+<strong>Next step: copy this URL into Nuvio → Add Addon.</strong>
+<p id="url-output"></p>
+<button id="copy" type="button">Copy URL</button>
+<p><a id="open-manifest" href="#" target="_blank" rel="noopener">Test configured manifest</a></p>
+</div>
+</section>
+</main>
+<script>
+const form = document.getElementById("config-form");
+const result = document.getElementById("result");
+const output = document.getElementById("url-output");
+const copyButton = document.getElementById("copy");
+const manifestLink = document.getElementById("open-manifest");
+let generatedUrl = "";
+form.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const upstream = document.getElementById("upstream").value.trim();
+  let parsed;
+  try { parsed = new URL(upstream); } catch { alert("Enter a valid addon URL."); return; }
+  if (!["https:", "http:"].includes(parsed.protocol)) { alert("Use an HTTP or HTTPS addon URL."); return; }
+  const max = Math.max(1, Math.min(20, Number(document.getElementById("max").value) || 6));
+  const config = { upstream, max };
+  const bytes = new TextEncoder().encode(JSON.stringify(config));
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  const encoded = btoa(binary).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/g, "");
+  generatedUrl = location.origin + "/" + encoded + "/manifest.json";
+  output.textContent = generatedUrl;
+  manifestLink.href = generatedUrl;
+  result.hidden = false;
+});
+copyButton.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(generatedUrl);
+    copyButton.textContent = "Copied";
+  } catch {
+    copyButton.textContent = "Select and copy the URL above";
+  }
+});
+</script>
+</body></html>`);
+});
+
 app.get("/", (req, res) => {
   if (String(req.headers.accept || "").includes("text/html")) {
     return res.type("html").send(renderDashboard());
@@ -800,9 +895,12 @@ app.get("/healthz", (_req, res) => {
   });
 });
 
-app.get("/manifest.json", (_req, res) => {
+function sendManifest(_req, res) {
   res.json(manifest);
-});
+}
+
+app.get("/manifest.json", sendManifest);
+app.get("/:config/manifest.json", sendManifest);
 
 app.get("/:config/stream/:type/:id.json", handleStream);
 app.get("/stream/:type/:id.json", handleStream);
