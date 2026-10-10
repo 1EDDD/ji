@@ -475,10 +475,27 @@ async function gatherStreams(type, id, upstreams) {
   } catch {
     // Only wait for all requests when every source was empty/failed.
     const results = await Promise.all(jobs);
-    return results
+    const streams = results
       .filter((result) => result.streams.length)
       .sort((a, b) => a.index - b.index)
       .flatMap((result) => result.streams);
+
+    if (streams.length) return streams;
+
+    const failures = results.filter((result) => result.error);
+    if (results.length > 0 && failures.length === results.length) {
+      const details = failures.map((result) => {
+        let host = "upstream";
+        try { host = new URL(result.upstream).host; } catch {}
+        const reason = result.error?.name === "AbortError"
+          ? "timeout"
+          : (result.error instanceof Error ? result.error.message : "request failed");
+        return host + ": " + reason;
+      });
+      throw new Error("All upstream addons failed: " + details.join("; "));
+    }
+
+    return [];
   }
 }
 
