@@ -4,6 +4,6 @@
   "private": true,
   "type": "module",
   "engines": { "node": ">=20" },
-  "scripts": { "start": "node src/server.mjs", "test": "node --test" },
+  "scripts": { "start": "node src/server.mjs", "test": "node --check src/server.mjs && node --check src/addon-config.mjs && node --test" },
   "dependencies": { "express": "^5.1.0" }
 }
