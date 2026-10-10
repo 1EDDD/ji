@@ -31,7 +31,7 @@ app.use((_req, res, next) => {
 
 const manifest = {
   id: "com.1eddd.nuvio.ai",
-  version: "0.3.0",
+  version: "0.4.0",
   name: "Nuvio AI",
   description: "Fast AI-powered stream intelligence with instant fallback, smart ranking and a polished Apple TV-inspired dashboard.",
   resources: ["stream"],
