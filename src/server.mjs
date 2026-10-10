@@ -821,7 +821,7 @@ form.addEventListener("submit", (event) => {
   const bytes = new TextEncoder().encode(JSON.stringify(config));
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  const encoded = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  const encoded = btoa(binary).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/g, "");
   generatedUrl = location.origin + "/" + encoded + "/manifest.json";
   output.textContent = generatedUrl;
   manifestLink.href = generatedUrl;
