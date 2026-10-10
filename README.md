@@ -2,7 +2,7 @@
 
 Private AI-enhanced stream intelligence addon for Nuvio.
 
-## v0.3
+## v0.4
 
 Nuvio AI now acts as a fast stream intelligence layer rather than a basic filter:
 
@@ -34,11 +34,22 @@ Recommended defaults:
 - `GEMINI_THINKING_LEVEL=low`
 - `MAX_STREAMS=6`
 - `MAX_UPSTREAMS=4`
-- `UPSTREAM_TIMEOUT_MS=1200`
+- `UPSTREAM_TIMEOUT_MS=5000`
 - `FAST_RETURN_MS=250`
 - `CACHE_TTL_MS=20000`
 
-The addon can receive an upstream URL through its Nuvio configuration page. The server environment variable `UPSTREAM_STREAM_ADDON_URL` is kept as a fallback.
+### Configure for Nuvio
+
+1. Open `/configure` on your deployed Render service.
+2. Paste the configured manifest URL of your source addon (for example, your own configured Torrentio, Comet, or AIOStreams URL).
+3. Generate the configured Nuvio AI URL.
+4. Copy that generated URL into Nuvio → Add Addon. Do not install the unconfigured root `/manifest.json` URL.
+
+Nuvio's native addon manifest parser does not expose the standard `config` form fields, so the settings are carried in the standard Base64URL path prefix instead. The server serves both `/manifest.json` and `/{encoded-config}/manifest.json`.
+
+`UPSTREAM_STREAM_ADDON_URL` remains an optional Render environment-variable fallback. If it is set, it can be used without per-install URL configuration.
+
+The upstream fetch timeout defaults to 5 seconds and covers the response body, not just response headers. Upstream failures and zero-result responses are logged with the host and title ID in Render logs.
 
 ## Run
 
