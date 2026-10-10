@@ -1,5 +1,6 @@
 import express from "express";
 import crypto from "node:crypto";
+import { buildStreamUrl, cleanUrl, decodeConfig } from "./addon-config.mjs";
 
 const app = express();
 
@@ -75,38 +76,6 @@ function stableHash(value) {
   return crypto.createHash("sha256").update(value).digest("hex").slice(0, 24);
 }
 
-function cleanUrl(raw) {
-  if (!raw) return "";
-  const value = String(raw).trim();
-  if (!value) return "";
-
-  try {
-    const parsed = new URL(value);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "";
-    if (/\/manifest\.json$/i.test(parsed.pathname)) {
-      parsed.pathname = parsed.pathname.replace(/\/manifest\.json$/i, "") || "/";
-    }
-    parsed.hash = "";
-    return parsed.toString().replace(/\/$/, "");
-  } catch {
-    return value.replace(/\/+$/, "").replace(/\/manifest\.json$/i, "");
-  }
-}
-function decodeConfig(raw) {
-  if (!raw) return {};
-  try {
-    const normalized = String(raw).replace(/-/g, "+").replace(/_/g, "/");
-    const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
-    const json = Buffer.from(padded, "base64").toString("utf8");
-    return JSON.parse(json);
-  } catch {
-    try {
-      return JSON.parse(decodeURIComponent(raw));
-    } catch {
-      return {};
-    }
-  }
-}
 
 function getConfig(req) {
   const pathConfig = decodeConfig(req.params.config);
@@ -427,15 +396,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = UPSTREAM_TIMEOUT_
 async function fetchUpstream(type, id, upstream) {
   const base = cleanUrl(upstream);
   if (!base) return [];
-
-  const endpoint = new URL(base);
-  endpoint.pathname =
-    endpoint.pathname.replace(/\/+$/, "") +
-    "/stream/" +
-    encodeURIComponent(type) +
-    "/" +
-    encodeURIComponent(id) +
-    ".json";
+  const endpoint = new URL(buildStreamUrl(base, type, id));
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
